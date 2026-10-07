@@ -319,28 +319,43 @@ def load_drive_files(url):
             quiet=True,
             use_cookies=False,
         )
-    else:
-        output_file = temp_dir / "drive_download"
-        downloaded = gdown.download(
-            url=url,
-            output=str(output_file),
-            quiet=True,
-            fuzzy=True,
-        )
 
-        if downloaded:
-            downloaded_path = Path(downloaded)
-            # gdown may determine the actual filename.
-            if downloaded_path.exists():
-                return [downloaded_path]
+        files = []
 
-    files = []
+        for path in temp_dir.rglob("*"):
+            if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                files.append(path)
 
-    for path in temp_dir.rglob("*"):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
-            files.append(path)
+        return files
 
-    return files
+    # Single Google Drive file
+    output_file = temp_dir / "drive_file"
+
+    downloaded = gdown.download(
+        url=url,
+        output=str(output_file),
+        quiet=True,
+    )
+
+    if not downloaded:
+        return []
+
+    downloaded_path = Path(downloaded)
+
+    # Try to determine the original extension from the URL.
+    url_without_query = url.split("?")[0]
+    url_extension = Path(url_without_query).suffix.lower()
+
+    if url_extension in SUPPORTED_EXTENSIONS:
+        new_path = downloaded_path.with_suffix(url_extension)
+        downloaded_path.rename(new_path)
+        return [new_path]
+
+    # Check whether gdown created a file with a supported extension.
+    if downloaded_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+        return [downloaded_path]
+
+    return []
 
 
 # -----------------------------
