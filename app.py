@@ -106,7 +106,7 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
     valid_chunks = []
     all_vectors = []
     
-    embedding_model = "models/gemini-embedding-001"
+    embedding_model = "models/embedding-001"
     batch_size = 20
     
     texts = [c.text for c in chunks if c.text and len(c.text.strip()) >= 10]
@@ -172,7 +172,7 @@ def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: f
     genai.configure(api_key=api_key)
     
     q_res = genai.embed_content(
-        model="models/gemini-embedding-001",
+        model="models/embedding-001",
         content=query,
         task_type="retrieval_query"
     )
@@ -217,8 +217,8 @@ USER QUERY: {query}
 EVIDENCE CORPUS:
 {context}"""
     
-    # 👈 Yahan model update karke gemini-2.5-flash kar diya gaya hai
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # 👈 Yahan model ko stable aur official 'gemini-1.5-flash' par set kar diya gaya hai
+    model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(prompt)
     reasoning = response.text
     
