@@ -256,8 +256,8 @@ Maine code mein aik choti si tabdeeli ki hai. Ab yeh code API ke asal error ko "
 
 ### Aakhri Dafa Pura Code Update Karein:
 
-1. Apne GitHub par jayen aur `app.py` ko Edit (✏️) karein.
-2. Sara purana code mita kar yeh naya code paste karein:
+###1. Apne GitHub par jayen aur `app.py` ko Edit (✏️) karein.
+###2. Sara purana code mita kar yeh naya code paste karein:
 
 ```python
 import streamlit as st
