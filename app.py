@@ -106,7 +106,6 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
     valid_chunks = []
     all_vectors = []
     
-    # 👈 Yahan new model update ho gaya hai!
     embedding_model = "models/gemini-embedding-001"
     batch_size = 20
     
@@ -172,7 +171,6 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, api_key: str) -> List[RetrievalResult]:
     genai.configure(api_key=api_key)
     
-    # 👈 Yahan bhi new model update ho gaya hai!
     q_res = genai.embed_content(
         model="models/gemini-embedding-001",
         content=query,
@@ -219,7 +217,8 @@ USER QUERY: {query}
 EVIDENCE CORPUS:
 {context}"""
     
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # 👈 Yahan model update karke gemini-2.5-flash kar diya gaya hai
+    model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(prompt)
     reasoning = response.text
     
