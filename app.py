@@ -106,7 +106,8 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
     valid_chunks = []
     all_vectors = []
     
-    embedding_model = "models/text-embedding-004"
+    # 👈 Yahan new model update ho gaya hai!
+    embedding_model = "models/gemini-embedding-001"
     batch_size = 20
     
     texts = [c.text for c in chunks if c.text and len(c.text.strip()) >= 10]
@@ -117,6 +118,9 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
         
     total_batches = (len(texts) + batch_size - 1) // batch_size
     progress_bar = st.progress(0, text=f"AI Embeddings ban rahi hain (0/{total_batches} batches)...")
+    
+    last_error = ""
+    error_count = 0
     
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i+batch_size]
@@ -132,29 +136,22 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
             for chunk, vec in zip(batch_chunks, vecs):
                 valid_chunks.append(chunk)
                 all_vectors.append(np.array(vec, dtype=np.float32))
-        except Exception:
-            # Fallback to embedding-001 if text-embedding-004 is unavailable
-            try:
-                res = genai.embed_content(
-                    model="models/embedding-001",
-                    content=batch_texts,
-                    task_type="retrieval_document"
-                )
-                vecs = res['embedding']
-                for chunk, vec in zip(batch_chunks, vecs):
-                    valid_chunks.append(chunk)
-                    all_vectors.append(np.array(vec, dtype=np.float32))
-            except Exception as e2:
-                st.warning(f"Batch {i//batch_size + 1} skip ho gaya: {str(e2)}")
-                continue
-                
-        time.sleep(0.5)
+            error_count = 0
+            time.sleep(0.5)
+        except Exception as e:
+            last_error = str(e)
+            error_count += 1
+            if error_count >= 3:
+                break
+            time.sleep(2)
+            continue
+            
         progress_bar.progress(min((i + batch_size) / len(texts), 1.0))
         
     progress_bar.empty()
     
     if not all_vectors:
-        st.error("🚨 Embeddings nahi ban sakin. Apni Gemini API Key verify karein.")
+        st.error(f"🚨 API Error:\n`{last_error}`\n(Please check Gemini API limits)")
         st.stop()
         
     final_vectors = np.vstack(all_vectors)
@@ -175,18 +172,12 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, api_key: str) -> List[RetrievalResult]:
     genai.configure(api_key=api_key)
     
-    try:
-        q_res = genai.embed_content(
-            model="models/text-embedding-004",
-            content=query,
-            task_type="retrieval_query"
-        )
-    except Exception:
-        q_res = genai.embed_content(
-            model="models/embedding-001",
-            content=query,
-            task_type="retrieval_query"
-        )
+    # 👈 Yahan bhi new model update ho gaya hai!
+    q_res = genai.embed_content(
+        model="models/gemini-embedding-001",
+        content=query,
+        task_type="retrieval_query"
+    )
         
     q_vec = np.array([q_res['embedding']], dtype=np.float32)
     faiss.normalize_L2(q_vec)
