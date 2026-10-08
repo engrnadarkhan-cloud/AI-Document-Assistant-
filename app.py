@@ -9,9 +9,15 @@ import gdown
 from dataclasses import dataclass
 from typing import List, Dict, Any, Tuple
 import google.generativeai as genai
+from sentence_transformers import SentenceTransformer
 
 # App Page Setup
 st.set_page_config(page_title="PSX Investor Intelligence", layout="wide", page_icon="📈")
+
+# Local Lightweight Embedder (Runs locally, zero 404 errors!)
+@st.cache_resource
+def get_embedder():
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
 # ==========================================
 # 1. DATA STRUCTURE
@@ -99,62 +105,18 @@ def chunk_chain(docs: List[Dict[str, Any]], chunk_size: int = 600, overlap: int 
     return chunks
 
 # ==========================================
-# 3. KNOWLEDGE BASE (Google Generative AI SDK)
+# 3. KNOWLEDGE BASE (Local Embeddings)
 # ==========================================
-def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[DocumentChunk], np.ndarray]:
-    genai.configure(api_key=api_key)
-    valid_chunks = []
-    all_vectors = []
-    
-    # 👈 Active standard model update kar diya gaya hai
-    embedding_model = "models/text-embedding-004"
-    batch_size = 20
-    
-    texts = [c.text for c in chunks if c.text and len(c.text.strip()) >= 10]
-    chunk_map = [c for c in chunks if c.text and len(c.text.strip()) >= 10]
+def embedding_chain(chunks: List[DocumentChunk]) -> Tuple[List[DocumentChunk], np.ndarray]:
+    embedder = get_embedder()
+    valid_chunks = [c for c in chunks if c.text and len(c.text.strip()) >= 10]
+    texts = [c.text for c in valid_chunks]
     
     if not texts:
         raise ValueError("Documents se koi valid text nahi nikla.")
         
-    total_batches = (len(texts) + batch_size - 1) // batch_size
-    progress_bar = st.progress(0, text=f"AI Embeddings ban rahi hain (0/{total_batches} batches)...")
-    
-    last_error = ""
-    error_count = 0
-    
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i+batch_size]
-        batch_chunks = chunk_map[i:i+batch_size]
-        
-        try:
-            res = genai.embed_content(
-                model=embedding_model,
-                content=batch_texts,
-                task_type="retrieval_document"
-            )
-            vecs = res['embedding']
-            for chunk, vec in zip(batch_chunks, vecs):
-                valid_chunks.append(chunk)
-                all_vectors.append(np.array(vec, dtype=np.float32))
-            error_count = 0
-            time.sleep(0.5)
-        except Exception as e:
-            last_error = str(e)
-            error_count += 1
-            if error_count >= 3:
-                break
-            time.sleep(2)
-            continue
-            
-        progress_bar.progress(min((i + batch_size) / len(texts), 1.0))
-        
-    progress_bar.empty()
-    
-    if not all_vectors:
-        st.error(f"🚨 API Error:\n`{last_error}`\n(Please check Gemini API limits)")
-        st.stop()
-        
-    final_vectors = np.vstack(all_vectors)
+    vectors = embedder.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+    final_vectors = vectors.astype(np.float32)
     faiss.normalize_L2(final_vectors)
     return valid_chunks, final_vectors
 
@@ -169,17 +131,9 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 # ==========================================
 # 4. SEARCH AUR REASONING
 # ==========================================
-def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, api_key: str) -> List[RetrievalResult]:
-    genai.configure(api_key=api_key)
-    
-    # 👈 Query embedding ke liye bhi text-embedding-004 set kar diya gaya hai
-    q_res = genai.embed_content(
-        model="models/text-embedding-004",
-        content=query,
-        task_type="retrieval_query"
-    )
-        
-    q_vec = np.array([q_res['embedding']], dtype=np.float32)
+def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi) -> List[RetrievalResult]:
+    embedder = get_embedder()
+    q_vec = embedder.encode([query], convert_to_numpy=True).astype(np.float32)
     faiss.normalize_L2(q_vec)
     sem_scores, sem_indices = faiss_idx.search(q_vec, len(chunks))
     
@@ -275,8 +229,8 @@ def main():
                     raw_chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
                     st.write(f"👉 Total **{len(raw_chunks)} chunks** ban gaye hain.")
                     
-                    st.write("5. AI dimaagh ban raha hai (Indexing)...")
-                    valid_chunks, vectors = embedding_chain(raw_chunks, api_key)
+                    st.write("5. Local Embeddings aur Indexing ho rahi hai...")
+                    valid_chunks, vectors = embedding_chain(raw_chunks)
                     faiss_idx, bm25_idx = indexing_chain(valid_chunks, vectors)
                     
                     st.session_state["db"] = {"chunks": valid_chunks, "faiss": faiss_idx, "bm25": bm25_idx}
@@ -291,7 +245,7 @@ def main():
         if st.button("Jawab Dhoondein") and query:
             api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
             with st.spinner("AI saboot dhoond raha hai..."):
-                results = hybrid_retrieval_chain(query, db["chunks"], db["faiss"], db["bm25"], api_key)
+                results = hybrid_retrieval_chain(query, db["chunks"], db["faiss"], db["bm25"])
                 answer = final_answer_chain(query, results, api_key)
                 st.markdown(answer)
 
