@@ -242,7 +242,8 @@ def main():
                     
                     # Naya UI message: Dikhaye ga kitne chunks banay
                     if not raw_chunks:
-                        st.error("🚨 Chunks nahiZabardast! Iska matlab hai Google Drive ka masla hal ho gaya hai (app ne successfully **6 files download** kar li hain aur text bhi nikal liya hai).
+                        # Corrected (if you want to keep the text)
+st.error("🚨 Chunks nahi ban sake. Zabardast! Iska matlab hai Google Drive ka masla hal ho gaya hai (app ne successfully **6 files download** kar li hain aur text bhi nikal liya hai).")
 
 Lekin ab ek **naya masla** aaya hai. Chunks (hissay) banne ke baad jab app unko Gemini API ke paas "Embedding" (AI dimaagh) banane ke liye bhej rahi hai, to **Google Gemini API saare chunks ko reject kar raha hai ya error de raha hai.** 
 
