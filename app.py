@@ -1,5 +1,5 @@
 import streamlit as st
-import os, re, uuid, hashlib, shutil
+import os, re, uuid, hashlib, shutil, time
 import numpy as np, pandas as pd
 import fitz, docx, faiss
 from PIL import Image
@@ -36,7 +36,6 @@ class RetrievalResult:
 # 2. FILE DOWNLOAD AUR EXTRACTION
 # ==========================================
 def ingest_chain(drive_url: str, output_dir: str = "data") -> str:
-    # Google Drive se folder download karna
     match = re.search(r"folders/([a-zA-Z0-9_-]+)", drive_url)
     if not match: match = re.search(r"id=([a-zA-Z0-9_-]+)", drive_url)
     if not match: raise ValueError("Invalid Google Drive Folder URL.")
@@ -47,7 +46,6 @@ def ingest_chain(drive_url: str, output_dir: str = "data") -> str:
     return output_dir
 
 def extract_chain(directory: str) -> List[Dict[str, Any]]:
-    # PDF aur Excel se text nikalna (Agar image hui to OCR chalega)
     raw_docs = []
     for root, _, files in os.walk(directory):
         for file in files:
@@ -62,7 +60,7 @@ def extract_chain(directory: str) -> List[Dict[str, Any]]:
                     text = page.get_text().strip()
                     method = "native_text"
                     
-                    if len(text) < 50: # Agar page scan shuda hai
+                    if len(text) < 50:
                         pix = page.get_pixmap()
                         img = Image.open(io.BytesIO(pix.tobytes("png")))
                         text = pytesseract.image_to_string(img).strip()
@@ -80,7 +78,6 @@ def extract_chain(directory: str) -> List[Dict[str, Any]]:
     return raw_docs
 
 def metadata_chain(normalized_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # Saal (Year) aur Report ki kism pata lagana
     for doc in normalized_docs:
         filename = doc["metadata"]["document_name"].upper()
         year_match = re.search(r'(20\d{2})', filename)
@@ -91,8 +88,7 @@ def metadata_chain(normalized_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]
         else: doc["metadata"]["document_type"] = "Other"
     return normalized_docs
 
-def chunk_chain(docs: List[Dict[str, Any]], chunk_size: int = 1400, overlap: int = 220) -> List[DocumentChunk]:
-    # Barey text ko chotay hisson (chunks) mein torna
+def chunk_chain(docs: List[Dict[str, Any]], chunk_size: int = 600, overlap: int = 100) -> List[DocumentChunk]:
     chunks = []
     for doc in docs:
         words = doc["text"].split()
@@ -107,13 +103,23 @@ def chunk_chain(docs: List[Dict[str, Any]], chunk_size: int = 1400, overlap: int
 # ==========================================
 def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: str) -> np.ndarray:
     texts = [c.text for c in chunks]
-    batch_size = 50
+    batch_size = 10  # 👈 Kam kar diya gaya hai taake API block na kare
     all_vectors = []
+    
+    # Progress bar taake user ko pata chale kaam ho raha hai
+    progress_bar = st.progress(0, text="AI Embeddings ban rahi hain (Please wait)...")
+    
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i+batch_size]
         response = client.models.embed_content(model=model, contents=batch)
         vectors = [item.values for item in response.embeddings]
         all_vectors.append(np.array(vectors, dtype=np.float32))
+        
+        # Har batch ke baad thora rukna taake Free API limit cross na ho
+        time.sleep(2)  
+        progress_bar.progress(min((i + batch_size) / len(texts), 1.0))
+        
+    progress_bar.empty()
     final_vectors = np.vstack(all_vectors)
     faiss.normalize_L2(final_vectors)
     return final_vectors
@@ -130,7 +136,6 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 # 4. SEARCH AUR REASONING
 # ==========================================
 def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, client: genai.Client, embed_model: str) -> List[RetrievalResult]:
-    # AI aur Keyword dono tarikon se document dhoondna
     q_vec = np.array([client.models.embed_content(model=embed_model, contents=[query]).embeddings[0].values], dtype=np.float32)
     faiss.normalize_L2(q_vec)
     sem_scores, sem_indices = faiss_idx.search(q_vec, len(chunks))
@@ -171,7 +176,6 @@ EVIDENCE CORPUS:
     
     reasoning = client.models.generate_content(model=model, contents=prompt).text
     
-    # Citations add karna
     citations = "\n\n---\n### 📚 Traceable Sources\n"
     for i, res in enumerate(evidence):
         citations += f"* **[S{i+1}]** {res.chunk.metadata.get('document_name')} (Page {res.chunk.metadata.get('page_number', 'N/A')})\n"
@@ -188,6 +192,10 @@ def main():
         st.header("⚙️ Configuration")
         drive_url = st.text_input("Drive Folder URL")
         
+        # 👈 UI mein default chunk size 600 kar diya gaya hai
+        chunk_size = st.number_input("Chunk Size", value=600)
+        chunk_overlap = st.number_input("Overlap", value=100)
+        
         if st.button("🚀 Knowledge Base Banayein", type="primary"):
             api_key = st.secrets.get("GEMINI_API_KEY")
             if not api_key: 
@@ -203,8 +211,8 @@ def main():
                     raw = extract_chain(data_dir)
                     st.write("3. Saal aur Metadata set ho raha hai...")
                     meta = metadata_chain(raw)
-                    st.write("4. Chunks ban rahe hain...")
-                    chunks = chunk_chain(meta)
+                    st.write(f"4. Chunks ban rahe hain (Size: {chunk_size})...")
+                    chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
                     st.write("5. AI dimaagh ban raha hai (Indexing)...")
                     vectors = embedding_chain(chunks, client, "text-embedding-004")
                     faiss_idx, bm25_idx = indexing_chain(chunks, vectors)
