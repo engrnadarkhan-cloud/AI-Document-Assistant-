@@ -99,30 +99,41 @@ def chunk_chain(docs: List[Dict[str, Any]], chunk_size: int = 600, overlap: int 
     return chunks
 
 # ==========================================
-# 3. KNOWLEDGE BASE (Dimaagh banana)
+# 3. KNOWLEDGE BASE (Crash-Proof Embeddings)
 # ==========================================
-def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: str) -> np.ndarray:
-    texts = [c.text for c in chunks]
-    batch_size = 10  # 👈 Kam kar diya gaya hai taake API block na kare
+def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: str) -> Tuple[List[DocumentChunk], np.ndarray]:
+    valid_chunks = []
     all_vectors = []
-    
-    # Progress bar taake user ko pata chale kaam ho raha hai
     progress_bar = st.progress(0, text="AI Embeddings ban rahi hain (Please wait)...")
     
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i+batch_size]
-        response = client.models.embed_content(model=model, contents=batch)
-        vectors = [item.values for item in response.embeddings]
-        all_vectors.append(np.array(vectors, dtype=np.float32))
-        
-        # Har batch ke baad thora rukna taake Free API limit cross na ho
-        time.sleep(2)  
-        progress_bar.progress(min((i + batch_size) / len(texts), 1.0))
+    for i, chunk in enumerate(chunks):
+        try:
+            # Agar chunk khali ho ya usme sirf 1-2 lafaz hon, to API ko bhejne se pehle hi reject kar dein
+            if not chunk.text or len(chunk.text.strip()) < 10:
+                continue
+                
+            response = client.models.embed_content(model=model, contents=chunk.text)
+            vectors = response.embeddings[0].values
+            all_vectors.append(np.array(vectors, dtype=np.float32))
+            valid_chunks.append(chunk)
+            
+            time.sleep(0.3) # API ko block hone se bachane ke liye nano-second ka waqfa
+            
+        except Exception as e:
+            # SAFETY NET: Agar API error de, to app crash nahi hogi, bas wo chunk skip ho jayega
+            print(f"Skipped chunk {chunk.chunk_id} due to API Error.")
+            continue
+            
+        progress_bar.progress(min((i + 1) / len(chunks), 1.0))
         
     progress_bar.empty()
+    
+    if not all_vectors:
+        raise ValueError("Koi valid text nahi mila! Apni Drive file dobara check karein.")
+        
     final_vectors = np.vstack(all_vectors)
     faiss.normalize_L2(final_vectors)
-    return final_vectors
+    return valid_chunks, final_vectors
 
 def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[faiss.IndexFlatIP, BM25Okapi]:
     dimension = vectors.shape[1]
@@ -136,7 +147,7 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 # 4. SEARCH AUR REASONING
 # ==========================================
 def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, client: genai.Client, embed_model: str) -> List[RetrievalResult]:
-    q_vec = np.array([client.models.embed_content(model=embed_model, contents=[query]).embeddings[0].values], dtype=np.float32)
+    q_vec = np.array([client.models.embed_content(model=embed_model, contents=query).embeddings[0].values], dtype=np.float32)
     faiss.normalize_L2(q_vec)
     sem_scores, sem_indices = faiss_idx.search(q_vec, len(chunks))
     
@@ -191,8 +202,6 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuration")
         drive_url = st.text_input("Drive Folder URL")
-        
-        # 👈 UI mein default chunk size 600 kar diya gaya hai
         chunk_size = st.number_input("Chunk Size", value=600)
         chunk_overlap = st.number_input("Overlap", value=100)
         
@@ -212,17 +221,19 @@ def main():
                     st.write("3. Saal aur Metadata set ho raha hai...")
                     meta = metadata_chain(raw)
                     st.write(f"4. Chunks ban rahe hain (Size: {chunk_size})...")
-                    chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
-                    st.write("5. AI dimaagh ban raha hai (Indexing)...")
-                    vectors = embedding_chain(chunks, client, "text-embedding-004")
-                    faiss_idx, bm25_idx = indexing_chain(chunks, vectors)
+                    raw_chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
+                    st.write("5. AI dimaagh ban raha hai (Safely Indexing)...")
                     
-                    st.session_state["db"] = {"chunks": chunks, "faiss": faiss_idx, "bm25": bm25_idx}
+                    # 👈 Yahan new function call updated hai
+                    valid_chunks, vectors = embedding_chain(raw_chunks, client, "text-embedding-004")
+                    faiss_idx, bm25_idx = indexing_chain(valid_chunks, vectors)
+                    
+                    st.session_state["db"] = {"chunks": valid_chunks, "faiss": faiss_idx, "bm25": bm25_idx}
                     status.update(label="Knowledge Base Taiyar Hai!", state="complete")
 
     if "db" in st.session_state:
         db = st.session_state["db"]
-        st.success(f"Total {len(db['chunks'])} hisson (chunks) ka data parh liya gaya hai.")
+        st.success(f"Total {len(db['chunks'])} hisson (chunks) ka data successfully parh liya gaya hai.")
         
         query = st.text_input("Apna Sawal likhein (Misaal: '2024 aur 2025 ke EPS ko compare karein'):")
         
