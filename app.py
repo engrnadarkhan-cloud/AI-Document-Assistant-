@@ -108,22 +108,15 @@ def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: st
     
     for i, chunk in enumerate(chunks):
         try:
-            # Agar chunk khali ho ya usme sirf 1-2 lafaz hon, to API ko bhejne se pehle hi reject kar dein
             if not chunk.text or len(chunk.text.strip()) < 10:
                 continue
-                
             response = client.models.embed_content(model=model, contents=chunk.text)
             vectors = response.embeddings[0].values
             all_vectors.append(np.array(vectors, dtype=np.float32))
             valid_chunks.append(chunk)
-            
-            time.sleep(0.3) # API ko block hone se bachane ke liye nano-second ka waqfa
-            
+            time.sleep(0.3)
         except Exception as e:
-            # SAFETY NET: Agar API error de, to app crash nahi hogi, bas wo chunk skip ho jayega
-            print(f"Skipped chunk {chunk.chunk_id} due to API Error.")
             continue
-            
         progress_bar.progress(min((i + 1) / len(chunks), 1.0))
         
     progress_bar.empty()
@@ -216,15 +209,31 @@ def main():
                 with st.status("Data parha ja raha hai...", expanded=True) as status:
                     st.write("1. Drive se download ho raha hai...")
                     data_dir = ingest_chain(drive_url)
+                    
+                    # 👈 NEW SAFETY CHECK: Bataye ga kitni files download hui hain
+                    downloaded_files = []
+                    for root, _, files in os.walk(data_dir):
+                        downloaded_files.extend(files)
+                    
+                    if not downloaded_files:
+                        st.error("🚨 Google Drive se 0 files download hui hain! \nCheck karein:\n1. Kya link theek hai?\n2. Kya folder 'Anyone with the link' par set hai?")
+                        st.stop()
+                        
+                    st.write(f"📁 Drive se {len(downloaded_files)} files mil gayin!")
+                    
                     st.write("2. Text aur Tables nikal rahe hain...")
                     raw = extract_chain(data_dir)
+                    
+                    if not raw:
+                        st.error("🚨 Files mili hain, lekin unme parhne layeq text nahi hai. (Files khali ya unsupported ho sakti hain).")
+                        st.stop()
+                        
                     st.write("3. Saal aur Metadata set ho raha hai...")
                     meta = metadata_chain(raw)
                     st.write(f"4. Chunks ban rahe hain (Size: {chunk_size})...")
                     raw_chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
                     st.write("5. AI dimaagh ban raha hai (Safely Indexing)...")
                     
-                    # 👈 Yahan new function call updated hai
                     valid_chunks, vectors = embedding_chain(raw_chunks, client, "text-embedding-004")
                     faiss_idx, bm25_idx = indexing_chain(valid_chunks, vectors)
                     
