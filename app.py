@@ -119,14 +119,13 @@ def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: st
             all_vectors.append(np.array(vectors, dtype=np.float32))
             valid_chunks.append(chunk)
             time.sleep(0.3)
-            error_count = 0 # API call kamyab ho gayi to error count reset kardo
+            error_count = 0 # Kamyab ho to reset
         except Exception as e:
             last_error = str(e)
             error_count += 1
-            # Agar musalsal 3 baar API error de de, to loop rok do taake app hang na ho
             if error_count >= 3:
                 break
-            time.sleep(2) # Thora delay de kar dobara try karo
+            time.sleep(2) 
             continue
             
         progress_bar.progress(min((i + 1) / total_chunks, 1.0), text=f"AI Embeddings ban rahi hain ({i+1} / {total_chunks})...")
@@ -136,7 +135,7 @@ def embedding_chain(chunks: List[DocumentChunk], client: genai.Client, model: st
     if not all_vectors:
         error_msg = f"🚨 API ne kisi bhi chunk ko process nahi kiya!\n"
         if last_error:
-            error_msg += f"\n**Asal Google API Error yeh hai:**\n`{last_error}`\n\n(Note: Agar '429 Resource Exhausted' aa raha hai, to aapka free API limit khatam ho gaya hai ya Rate Limit lag gayi hai.)"
+            error_msg += f"\n**Asal Google API Error yeh hai:**\n`{last_error}`\n\n(Note: Agar '429 Resource Exhausted' aa raha hai, to aapka free API limit khatam ho gaya hai.)"
         st.error(error_msg)
         st.stop()
         
@@ -231,16 +230,15 @@ def main():
                         downloaded_files.extend(files)
                     
                     if not downloaded_files:
-                        st.error("🚨 Google Drive se 0 files download hui hain! \nCheck karein:\n1. Kya link theek hai?\n2. Kya folder 'Anyone with the link' par set hai?")
+                        st.error("🚨 Google Drive se 0 files download hui hain!")
                         st.stop()
                         
                     st.write(f"📁 Drive se {len(downloaded_files)} files mil gayin!")
-                    
                     st.write("2. Text aur Tables nikal rahe hain...")
                     raw = extract_chain(data_dir)
                     
                     if not raw:
-                        st.error("🚨 Files mili hain, lekin unme parhne layeq text nahi hai. (Files khali ya unsupported ho sakti hain).")
+                        st.error("🚨 Files mili hain, lekin unme parhne layeq text nahi hai.")
                         st.stop()
                         
                     st.write("3. Saal aur Metadata set ho raha hai...")
@@ -248,15 +246,11 @@ def main():
                     
                     st.write(f"4. Chunks ban rahe hain (Size: {chunk_size})...")
                     raw_chunks = chunk_chain(meta, int(chunk_size), int(chunk_overlap))
-                    
-                    if not raw_chunks:
-                        st.error("🚨 Text nikla hai, lekin chunks nahi ban sake. Khali pages ho sakte hain.")
-                        st.stop()
-                        
                     st.write(f"👉 Total **{len(raw_chunks)} chunks** ban gaye hain.")
                     
                     st.write("5. AI dimaagh ban raha hai (Safely Indexing)...")
-                    valid_chunks, vectors = embedding_chain(raw_chunks, client, "text-embedding-004")
+                    # Yahan humne text-embedding-004 ko hatakar stable embedding-001 laga diya hai
+                    valid_chunks, vectors = embedding_chain(raw_chunks, client, "embedding-001")
                     faiss_idx, bm25_idx = indexing_chain(valid_chunks, vectors)
                     
                     st.session_state["db"] = {"chunks": valid_chunks, "faiss": faiss_idx, "bm25": bm25_idx}
@@ -271,8 +265,10 @@ def main():
         if st.button("Jawab Dhoondein") and query:
             client = genai.Client(api_key=st.secrets.get("GEMINI_API_KEY"))
             with st.spinner("AI saboot dhoond raha hai..."):
-                results = hybrid_retrieval_chain(query, db["chunks"], db["faiss"], db["bm25"], client, "text-embedding-004")
-                answer = final_answer_chain(query, results, client, "gemini-2.5-flash")
+                # Retrieval ke liye bhi embedding-001
+                results = hybrid_retrieval_chain(query, db["chunks"], db["faiss"], db["bm25"], client, "embedding-001")
+                # Answer generation ke liye stable gemini-1.5-flash
+                answer = final_answer_chain(query, results, client, "gemini-1.5-flash")
                 st.markdown(answer)
 
 if __name__ == "__main__":
