@@ -106,7 +106,8 @@ def embedding_chain(chunks: List[DocumentChunk], api_key: str) -> Tuple[List[Doc
     valid_chunks = []
     all_vectors = []
     
-    embedding_model = "models/embedding-001"
+    # 👈 Active standard model update kar diya gaya hai
+    embedding_model = "models/text-embedding-004"
     batch_size = 20
     
     texts = [c.text for c in chunks if c.text and len(c.text.strip()) >= 10]
@@ -171,8 +172,9 @@ def indexing_chain(chunks: List[DocumentChunk], vectors: np.ndarray) -> Tuple[fa
 def hybrid_retrieval_chain(query: str, chunks: List[DocumentChunk], faiss_idx: faiss.IndexFlatIP, bm25_idx: BM25Okapi, api_key: str) -> List[RetrievalResult]:
     genai.configure(api_key=api_key)
     
+    # 👈 Query embedding ke liye bhi text-embedding-004 set kar diya gaya hai
     q_res = genai.embed_content(
-        model="models/embedding-001",
+        model="models/text-embedding-004",
         content=query,
         task_type="retrieval_query"
     )
@@ -217,7 +219,6 @@ USER QUERY: {query}
 EVIDENCE CORPUS:
 {context}"""
     
-    # 👈 Yahan model ko stable aur official 'gemini-1.5-flash' par set kar diya gaya hai
     model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(prompt)
     reasoning = response.text
