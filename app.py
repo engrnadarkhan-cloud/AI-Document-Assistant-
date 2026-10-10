@@ -173,8 +173,8 @@ USER QUERY: {query}
 EVIDENCE CORPUS:
 {context}"""
     
-    # 👈 Yahan model ka naam update kar diya gaya hai (latest aur stable version)
-    model = genai.GenerativeModel("gemini-1.5-flash-latest") 
+    # 👈 Yahan sab se stable model 'gemini-pro' set kar diya gaya hai
+    model = genai.GenerativeModel("gemini-pro") 
     
     response = model.generate_content(prompt)
     reasoning = response.text
@@ -183,8 +183,7 @@ EVIDENCE CORPUS:
     for i, res in enumerate(evidence):
         citations += f"* **[S{i+1}]** {res.chunk.metadata.get('document_name')} (Page {res.chunk.metadata.get('page_number', 'N/A')})\n"
     
-    return reasoning + citations
-# ==========================================
+    return reasoning + citations# ==========================================
 # 5. UI (User Interface)
 # ==========================================
 def main():
