@@ -173,7 +173,9 @@ USER QUERY: {query}
 EVIDENCE CORPUS:
 {context}"""
     
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # 👈 Yahan model ka naam update kar diya gaya hai (latest aur stable version)
+    model = genai.GenerativeModel("gemini-1.5-flash-latest") 
+    
     response = model.generate_content(prompt)
     reasoning = response.text
     
@@ -182,7 +184,6 @@ EVIDENCE CORPUS:
         citations += f"* **[S{i+1}]** {res.chunk.metadata.get('document_name')} (Page {res.chunk.metadata.get('page_number', 'N/A')})\n"
     
     return reasoning + citations
-
 # ==========================================
 # 5. UI (User Interface)
 # ==========================================
